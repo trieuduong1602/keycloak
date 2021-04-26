@@ -625,7 +625,7 @@ public class SamlService extends AuthorizationEndpointBase {
             SAML2LogoutResponseBuilder builder = new SAML2LogoutResponseBuilder();
             builder.logoutRequestID(logoutRequest.getID());
             builder.destination(logoutBindingUri);
-            // builder.issuer(RealmsResource.realmBaseUrl(session.getContext().getUri()).build(realm.getName()).toString());
+
             String nameIDValue = System.getenv(KEYCLOAK_SAML_LOGOUT_RESPONSE_NAME_ID);
             logger.debugv("nameIDValue={0}", nameIDValue);
             
@@ -654,13 +654,13 @@ public class SamlService extends AuthorizationEndpointBase {
             }
             try {
                 if (postBinding) {
-                    logger.debugv("PostBinding logout response to {0}", logoutBindingUri);
+                    logger.debugv("PostBinding: sending logout response to {0}", logoutBindingUri);
                     return binding.postBinding(builder.buildDocument()).response(logoutBindingUri);
                 } else if (isSOAPBinding) {
-                    logger.debugv("SOAPBinding logout response to {0}", logoutBindingUri);
+                    logger.debugv("SOAPBinding: sending logout response to {0}", logoutBindingUri);
                     return binding.postBinding(builder.buildDocument()).response(logoutBindingUri);
                 } else {
-                    logger.debugv("RedirectBinding logout response to {0}", logoutBindingUri);
+                    logger.debugv("RedirectBinding: sending logout response to {0}", logoutBindingUri);
                     return binding.redirectBinding(builder.buildDocument()).response(logoutBindingUri);
                 }
             } catch (Exception e) {
