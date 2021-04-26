@@ -168,6 +168,7 @@ public class SamlService extends AuthorizationEndpointBase {
     public abstract class BindingProtocol {
 
         private static final String KEYCLOAK_SAML_ALLOWED_DESTINATION = "KEYCLOAK_SAML_ALLOWED_DESTINATION";
+        private static final String KEYCLOAK_SAML_LOGOUT_RESPONSE_NAME_ID = "KEYCLOAK_SAML_LOGOUT_RESPONSE_NAME_ID";
         // this is to support back button on browser
         // if true, we redirect to authenticate URL otherwise back button behavior has bad side effects
         // and we want to turn it off.
@@ -317,10 +318,12 @@ public class SamlService extends AuthorizationEndpointBase {
             }
 
             if (samlObject instanceof AuthnRequestType) {
+                logger.debug("logOutRequest is of AuthnRequestType");
                 // Get the SAML Request Message
                 AuthnRequestType authn = (AuthnRequestType) samlObject;
                 return loginRequest(relayState, authn, client);
             } else if (samlObject instanceof LogoutRequestType) {
+                logger.debug("logOutRequest is of LogoutRequestType");
                 LogoutRequestType logout = (LogoutRequestType) samlObject;
                 return logoutRequest(logout, client, relayState);
             } else {
@@ -531,6 +534,7 @@ public class SamlService extends AuthorizationEndpointBase {
         protected abstract String getBindingType();
 
         protected Response logoutRequest(LogoutRequestType logoutRequest, ClientModel client, String relayState) {
+            logger.debug("logoutRequest starts!");
             SamlClient samlClient = new SamlClient(client);
             if (! validateDestination(logoutRequest, samlClient, Errors.INVALID_SAML_LOGOUT_REQUEST)) {
                 return ErrorPage.error(session, null, Response.Status.BAD_REQUEST, Messages.INVALID_REQUEST);
@@ -539,6 +543,7 @@ public class SamlService extends AuthorizationEndpointBase {
             // authenticate identity cookie, but ignore an access token timeout as we're logging out anyways.
             AuthenticationManager.AuthResult authResult = authManager.authenticateIdentityCookie(session, realm, false);
             if (authResult != null) {
+                logger.debug("Identity cookie valid");
                 String logoutBinding = getBindingType();
                 String postBindingUri = SamlProtocol.getLogoutServiceUrl(session, client, SamlProtocol.SAML_POST_BINDING, false);
                 if (samlClient.forcePostBinding() && postBindingUri != null && ! postBindingUri.trim().isEmpty())
@@ -583,6 +588,8 @@ public class SamlService extends AuthorizationEndpointBase {
                 logger.debug("browser Logout");
                 return authManager.browserLogout(session, realm, userSession, session.getContext().getUri(), clientConnection, headers, null);
             } else if (logoutRequest.getSessionIndex() != null) {
+                logger.debug("Session index found in logoutRequest");
+
                 for (String sessionIndex : logoutRequest.getSessionIndex()) {
 
                     AuthenticatedClientSessionModel clientSession = SamlSessionUtils.getClientSession(session, realm, sessionIndex);
@@ -608,16 +615,35 @@ public class SamlService extends AuthorizationEndpointBase {
 
             }
 
+            logger.debug("Building logoutResponse");
             // default
             String logoutBinding = getBindingType();
             String logoutBindingUri = SamlProtocol.getLogoutServiceUrl(session, client, logoutBinding, true);
             String logoutRelayState = relayState;
+            logger.debugv("logoutBinding={0}, logoutBindingUri={1}, logoutRelayState={2}", logoutBinding, logoutBindingUri, logoutRelayState);
+
             SAML2LogoutResponseBuilder builder = new SAML2LogoutResponseBuilder();
             builder.logoutRequestID(logoutRequest.getID());
             builder.destination(logoutBindingUri);
-            builder.issuer(RealmsResource.realmBaseUrl(session.getContext().getUri()).build(realm.getName()).toString());
-            JaxrsSAML2BindingBuilder binding = new JaxrsSAML2BindingBuilder(session).relayState(logoutRelayState);
+
+            String nameIDValue = System.getenv(KEYCLOAK_SAML_LOGOUT_RESPONSE_NAME_ID);
+            logger.debugv("nameIDValue={0}", nameIDValue);
+            
+            NameIDType nameIDType = new NameIDType();
+            nameIDType.setValue(nameIDValue);
+            nameIDType.setFormat(JBossSAMLURIConstants.NAMEID_FORMAT_X509SUBJECTNAME.getUri());
+            builder.issuer(nameIDType);
+            
+            JaxrsSAML2BindingBuilder binding;
             boolean postBinding = SamlProtocol.SAML_POST_BINDING.equals(logoutBinding);
+            boolean isSOAPBinding = SamlProtocol.SAML_SOAP_BINDING.equals(logoutBinding);
+
+            if (isSOAPBinding) {
+                binding = new SOAPOverHTTPBindingBuilder(session).relayState(logoutRelayState);
+            } else {
+                binding = new JaxrsSAML2BindingBuilder(session).relayState(logoutRelayState);
+            }
+
             if (samlClient.requiresRealmSignature()) {
                 SignatureAlgorithm algorithm = samlClient.getSignatureAlgorithm();
                 KeyManager.ActiveRsaKey keys = session.keys().getActiveRsaKey(realm);
@@ -628,8 +654,13 @@ public class SamlService extends AuthorizationEndpointBase {
             }
             try {
                 if (postBinding) {
+                    logger.debugv("PostBinding: sending logout response to {0}", logoutBindingUri);
+                    return binding.postBinding(builder.buildDocument()).response(logoutBindingUri);
+                } else if (isSOAPBinding) {
+                    logger.debugv("SOAPBinding: sending logout response to {0}", logoutBindingUri);
                     return binding.postBinding(builder.buildDocument()).response(logoutBindingUri);
                 } else {
+                    logger.debugv("RedirectBinding: sending logout response to {0}", logoutBindingUri);
                     return binding.redirectBinding(builder.buildDocument()).response(logoutBindingUri);
                 }
             } catch (Exception e) {

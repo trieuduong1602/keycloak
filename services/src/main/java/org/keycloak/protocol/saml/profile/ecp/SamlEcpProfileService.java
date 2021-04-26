@@ -17,6 +17,7 @@
 
 package org.keycloak.protocol.saml.profile.ecp;
 
+import org.jboss.logging.Logger;
 import org.keycloak.dom.saml.v2.protocol.AuthnRequestType;
 import org.keycloak.events.EventBuilder;
 import org.keycloak.models.AuthenticationFlowModel;
@@ -56,6 +57,8 @@ public class SamlEcpProfileService extends SamlService {
     private static final String NS_PREFIX_SAML_PROTOCOL = "samlp";
     private static final String NS_PREFIX_SAML_ASSERTION = "saml";
 
+    protected static final Logger logger = Logger.getLogger(SamlEcpProfileService.class);
+
     public SamlEcpProfileService(RealmModel realm, EventBuilder event, DestinationValidator destinationValidator) {
         super(realm, event, destinationValidator);
     }
@@ -69,6 +72,11 @@ public class SamlEcpProfileService extends SamlService {
             return new PostBindingProtocol() {
                 @Override
                 protected String getBindingType(AuthnRequestType requestAbstractType) {
+                    return SamlProtocol.SAML_SOAP_BINDING;
+                }
+
+                @Override
+                protected String getBindingType() {
                     return SamlProtocol.SAML_SOAP_BINDING;
                 }
 
@@ -152,6 +160,7 @@ public class SamlEcpProfileService extends SamlService {
 
             @Override
             protected Response buildLogoutResponse(UserSessionModel userSession, String logoutBindingUri, SAML2LogoutResponseBuilder builder, JaxrsSAML2BindingBuilder binding) throws ConfigurationException, ProcessingException, IOException {
+                logger.debug("ECPProfileService: Logout response not supported.");
                 return Soap.createFault().reason("Logout not supported.").build();
             }
         }.setEventBuilder(event).setHttpHeaders(headers).setRealm(realm).setSession(session).setUriInfo(session.getContext().getUri());
